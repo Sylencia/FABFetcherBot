@@ -2,15 +2,15 @@ import praw
 import os
 import re
 import requests
-import json
+from replit import db
 
-# reddit = praw.Reddit(
-#     client_id = os.environ['client_id'],
-#     client_secret = os.environ['client_secret'],
-#     username = os.environ['username'],
-#     password = os.environ['password'],
-#     user_agent = "<FABFetcherBot1.0>"
-# )
+reddit = praw.Reddit(
+    client_id = os.environ['client_id'],
+    client_secret = os.environ['client_secret'],
+    username = os.environ['username'],
+    password = os.environ['password'],
+    user_agent = "<FABFetcherBot1.0>"
+)
 
 def clean_pitch(pitch):
   pitch_table = {
@@ -45,13 +45,15 @@ def get_print_name(name, rarity, pitch):
 
 class FABFetcherBot:
   def __init__(self):
-    pass
-
-  def can_post(self):
-    pass
+    self.last_posted = 0
+    
+    # database exists
+    if(len(db) != 0):
+      self.last_posted = db["last_posted"]
   
   def find_match(self, comment):
-    cards = re.findall(r"\[\[(.*?)\]\]", comment)
+    cards = re.findall(r"\[\[(.*?)\]\]", comment.body)
+    msg = ''
     if len(cards) > 0:
       for card in cards:
         raw_name, *raw_pitch = card.split('|')
@@ -67,18 +69,31 @@ class FABFetcherBot:
         data = list(filtered)
         total = len(data)
         if total > 0:
-          for card in data:
+          if msg != '':
+            msg += '\n\n'
+          for i, card in enumerate(data):
             print_name = get_print_name(card["name"], card["rarity"], str(card["stats"].get("resource", -1)))
             print_image = card["printings"][0]["image"]
-            print('[%s](%s)' % (print_name, print_image))
+            msg += '[%s](%s)' % (print_name, print_image)
+            
+            if(i != len(data) - 1):
+              msg += '  '
         else:
           print('No cards found')
+    
+    print(msg)
+    self.make_response(msg, comment)
+
+  def make_response(self, msg, comment):
+    try:
+      comment.reply(msg)
+    except Exception as e:
+      print(e)
 
 # Setup here
 # keep_alive()
 bot = FABFetcherBot()
-test = 'Hello [[Snatch]] and [[Command and Conquer|red]]'
-bot.find_match(test)
-# subreddit = reddit.subreddit('FABFetcherBot')
-# for comment in subreddit.stream.comments(skip_existing=True):
-#     bot.find_match(comment)
+subreddit = reddit.subreddit('FABFetcherBot')
+for comment in subreddit.stream.comments(skip_existing=True):
+    print(comment.body)
+    bot.find_match(comment)
