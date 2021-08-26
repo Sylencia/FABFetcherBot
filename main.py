@@ -63,6 +63,9 @@ def get_print_card_type(card_talent, card_class, card_type, card_subtype, card_k
   
   return type.title()
 
+def get_hint_text(text):
+  return text.replace(' ', '&nbsp;')
+
 
 class FABFetcherBot:
   def __init__(self):
@@ -96,6 +99,7 @@ class FABFetcherBot:
       req_pitch = '&pitch=%s' % (pitch) if pitch != 'all' else ''
       try:
         r = requests.get('https://api.fabdb.net/cards?%s%s' % (req_kw, req_pitch), timeout=10)
+        r.raise_for_status()
       except Exception as e:
         print(e)
         continue
@@ -119,28 +123,29 @@ class FABFetcherBot:
   
   def get_response_decks(self, decks):
     response = ''
-    # only iterpret the first one, for space reasons
-    slug = decks[0]
     
-    # Request card from fabdb API
-    try:
-      r = requests.get('https://api.fabdb.net/decks/%s' % (slug), timeout=10)
-    except Exception as e:
-      print(e)
-    else:
-      req_json = r.json()
-      req_cards = req_json['cards']
-      card_order = ['hero', 'weapon', 'equipment', 'action', 'instant', 'attack', 'defense', 'mentor', 'resource', 'other']
-      data=sorted(req_cards, key=lambda x: card_order.index(x.get('type', 'other')))
-      # Table Header
-      response += 'Count | Card | Type\n'
-      response += '---|---|----\n'
-      for i, card in enumerate(data):
-        print_name = get_print_name(card.get('name'), card.get('identifier'))
-        print_image = card['printings'][0]['image']
-        print_quantity = card['total']
-        print_type = get_print_card_type(card.get('talent'), card.get('class'), card.get('type'), card.get('subType'), card.get('keywords'))
-        response += '%s | [%s](%s) | %s\n' % (print_quantity, print_name, print_image, print_type)
+    for slug in decks:
+      # Request deck from fabdb API
+      try:
+        r = requests.get('https://api.fabdb.net/decks/%s' % (slug), timeout=10)
+        r.raise_for_status()
+      except Exception as e:
+        print(e)
+      else:
+        req_json = r.json()
+        req_cards = req_json['cards']
+        card_order = ['hero', 'weapon', 'equipment', 'action', 'instant', 'attack', 'defense', 'mentor', 'resource', 'other']
+        data=sorted(req_cards, key=lambda x: card_order.index(x.get('type', 'other')))
+        # Table Header
+        response += 'Count | Card | Type\n'
+        response += '---|---|----\n'
+        for i, card in enumerate(data):
+          print_name = get_print_name(card.get('name'), card.get('identifier'))
+          print_image = card['printings'][0]['image']
+          print_quantity = card['total']
+          print_type = get_print_card_type(card.get('talent'), card.get('class'), card.get('type'), card.get('subType'), card.get('keywords'))
+          response += '%s | [%s](%s) | %s\n' % (print_quantity, print_name, print_image, print_type)
+        return response
         
     return response
   
@@ -155,10 +160,10 @@ class FABFetcherBot:
       if response != '':
           response += '___\n'
       if len(decks) > 1:
-        response += '^Multiple&nbsp;deck&nbsp;codes&nbsp;found,&nbsp;only&nbsp;the&nbsp;first&nbsp;deck&nbsp;code&nbsp;will&nbsp;be&nbsp;interpreted.\n\n'
+        response += get_hint_text('^Multiple deck codes found, only the first valid deck code will be interpreted.\n\n')
       response += self.get_response_decks(decks)
     
-    response += '___\n^^^Hint:&nbsp;[[card]],&nbsp;[[card|pitch]]&nbsp;{{fabdb&nbsp;deck&nbsp;code}}.&nbsp;PM&nbsp;[me](https://www.reddit.com/message/FABFetcher)&nbsp;for&nbsp;feedback/issues!&nbsp;Card&nbsp;and&nbsp;deck&nbsp;information&nbsp;provided&nbsp;by&nbsp;[FAB&nbsp;DB](https://fabdb.net).'
+    response += get_hint_text('___\n^^^Hint: [[card]], [[card|pitch]] {{fabdb deck code}}. PM [me](https://www.reddit.com/message/FABFetcher) for feedback/issues! Card and deck information provided by [FAB DB](https://fabdb.net).')
     self.response = response
 
   def make_response(self, response, comment):
@@ -172,7 +177,7 @@ class FABFetcherBot:
 bot = FABFetcherBot()
 subreddit = reddit.subreddit('FABFetcherBot')
 if DEBUG:
-  test_comment = '[[Snatch]] and [[Command and Conquer]], with deck slugs {{invalid}}'
+  test_comment = '[[Snatch]] and [[Command and Conquer]], with deck slugs {{invalid}} and {{EPGBqxWl}}'
   bot.setup_debug_comment(test_comment)
 else:
   for comment in subreddit.stream.comments(skip_existing=True):
