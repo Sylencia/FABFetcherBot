@@ -3,8 +3,10 @@ import os
 import re
 import requests
 from replit import db
+from keep_alive import keep_alive
 
-DEBUG = True
+DEBUG = False
+BOT_NAME = 'fabfetcher'
 
 reddit = praw.Reddit(
     client_id = os.environ['client_id'],
@@ -78,9 +80,11 @@ class FABFetcherBot:
       self.last_posted = db['last_posted']
 
   def setup_reddit_comment(self, comment):
-    self.comment = comment
-    self.find_match(comment.body)
-    self.make_response(self.response, self.comment)
+    if(str(comment.author).lower() != BOT_NAME):
+      print('comment found')
+      self.comment = comment
+      self.find_match(comment.body)
+      self.make_response(self.response, self.comment)
 
   def setup_debug_comment(self, text):
     self.find_match(text)
@@ -111,7 +115,7 @@ class FABFetcherBot:
         if total > 0:
           if response != '':
             response += '\n\n'
-          for i, card in enumerate(data):
+          for card in enumerate(data):
             print_name = get_print_name(card.get('name'), card.get('identifier'))
             print_image = card['printings'][0]['image']
             print_link = 'https://fabdb.net/cards/%s' % (card['identifier'])
@@ -133,18 +137,49 @@ class FABFetcherBot:
         print(e)
       else:
         req_json = r.json()
-        req_cards = req_json['cards']
+        req_cards = req_json.get('cards', [])
+        # check for sideboard
+        req_side = req_json.get('sideboard', [])
+        has_side = len(req_side) > 0
         card_order = ['hero', 'weapon', 'equipment', 'action', 'instant', 'attack', 'defense', 'mentor', 'resource', 'other']
         data=sorted(req_cards, key=lambda x: card_order.index(x.get('type', 'other')))
         # Table Header
-        response += 'Count | Card | Type\n'
-        response += '---|---|----\n'
+        response += '[%s](https://fabdb.net/decks/%s) - Format: %s\n\n' % (req_json.get('name'), slug, req_json.get('format').title())
+        # Setup header depending on if there is a sideboard or not
+        if has_side:
+          response += 'Side | Main | Card | Type\n'
+          response += ':---:|:---:|---|----\n'
+        else:
+          response += 'Main | Card | Type\n'
+          response += ':---:|---|----\n'
+
+        # Card count vars
+        main_count = 0
+        side_count = 0
+        
+        # Card enumeration
         for i, card in enumerate(data):
           print_name = get_print_name(card.get('name'), card.get('identifier'))
           print_image = card['printings'][0]['image']
-          print_quantity = card['total']
+          # Don't include Hero cards in the mainboard count
+          mainboard = card.get('total') - card.get('totalSideboard') if card.get('type') != 'hero' else 0
+          sideboard = card.get('totalSideboard')
+          main_count += mainboard
+          side_count += sideboard
+          print_mainboard = mainboard if mainboard > 0 else '&nbsp;'
+          print_sideboard = sideboard if sideboard > 0 else '&nbsp;'
           print_type = get_print_card_type(card.get('talent'), card.get('class'), card.get('type'), card.get('subType'), card.get('keywords'))
-          response += '%s | [%s](%s) | %s\n' % (print_quantity, print_name, print_image, print_type)
+          
+          if has_side:
+            response += '%s | %s | [%s](%s) | %s\n' % (print_sideboard, print_mainboard, print_name, print_image, print_type)
+          else:
+            response += '%s | [%s](%s) | %s\n' % (print_mainboard, print_name, print_image, print_type)
+
+        # Add final card counts at the bottom
+        if has_side:
+          response += '**%s** | **%s** |  | \n' % (side_count, main_count)
+        else:
+          response += '**%s** | | \n' % (main_count)
         return response
         
     return response
@@ -163,22 +198,28 @@ class FABFetcherBot:
         response += get_hint_text('^Multiple deck codes found, only the first valid deck code will be interpreted.\n\n')
       response += self.get_response_decks(decks)
     
-    response += get_hint_text('___\n^^^Hint: [[card]], [[card|pitch]] {{fabdb deck code}}. PM [me](https://www.reddit.com/message/FABFetcher) for feedback/issues! Card and deck information provided by [FAB DB](https://fabdb.net).')
-    self.response = response
+    if response != '':
+      response += get_hint_text('___\n^^^Hint: [[card]], [[card|pitch]] {{fabdb deck code}}. PM [me](https://www.reddit.com/message/FABFetcher) for feedback/issues! Card and deck information provided by [FAB DB](https://fabdb.net).')
+      self.response = response
 
   def make_response(self, response, comment):
     try:
-      comment.reply(response)
+      if response != '':
+        print('responding')
+        comment.reply(response)
     except Exception as e:
       print(e)
 
 # Setup here
-# keep_alive()
 bot = FABFetcherBot()
-subreddit = reddit.subreddit('FABFetcherBot')
+print('FAB Fetcher Bot is now running')
 if DEBUG:
-  test_comment = '[[Snatch]] and [[Command and Conquer]], with deck slugs {{invalid}} and {{EPGBqxWl}}'
+  test_comment = '{{gBVQWAdJ}} has a sideboard'
+  # test_comment = '{{EPGBqxWl}} has no sideboard'
+  # test_comment = '{{EGdlZLQA}} blitz'
   bot.setup_debug_comment(test_comment)
 else:
+  keep_alive()
+  subreddit = reddit.subreddit('FABFetcherBotTest')
   for comment in subreddit.stream.comments(skip_existing=True):
     bot.setup_reddit_comment(comment)
