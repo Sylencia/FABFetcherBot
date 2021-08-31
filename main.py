@@ -25,7 +25,7 @@ def clean_pitch(pitch):
     'blue': '3',
     '3': '3',
   }
-  return pitch_table.get(pitch, 'all')
+  return pitch_table.get(pitch.lower(), 'all')
 
 def clean_name(name):
   return name.replace(' ', '+').lower()
@@ -81,14 +81,14 @@ class FABFetcherBot:
 
   def setup_reddit_comment(self, comment):
     if(str(comment.author).lower() != BOT_NAME):
-      print('comment found')
+      self.response = ''
       self.comment = comment
       self.find_match(comment.body)
       self.make_response(self.response, self.comment)
 
   def setup_debug_comment(self, text):
+    self.response = ''
     self.find_match(text)
-    print(self.response)
 
   def get_response_cards(self, cards):
     response = ''
@@ -115,7 +115,7 @@ class FABFetcherBot:
         if total > 0:
           if response != '':
             response += '\n\n'
-          for card in enumerate(data):
+          for i, card in enumerate(data):
             print_name = get_print_name(card.get('name'), card.get('identifier'))
             print_image = card['printings'][0]['image']
             print_link = 'https://fabdb.net/cards/%s' % (card['identifier'])
@@ -220,6 +220,6 @@ if DEBUG:
   bot.setup_debug_comment(test_comment)
 else:
   keep_alive()
-  subreddit = reddit.subreddit('FABFetcherBotTest')
+  subreddit = reddit.subreddit('FabFetcherBotTest+FleshAndBloodTCG')
   for comment in subreddit.stream.comments(skip_existing=True):
     bot.setup_reddit_comment(comment)
