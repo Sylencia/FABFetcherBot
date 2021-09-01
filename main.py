@@ -5,7 +5,27 @@ import requests
 from replit import db
 from keep_alive import keep_alive
 
+# Mode
+bot_mode = 'comment'
+MODE_COMMENT = 'comment'
+MODE_SUBMISSION = 'submission'
+MODE_DEBUG = 'debug'
 DEBUG = False
+# Card Types
+CT_HERO = 'hero'
+CT_EQUIPMENT = 'equipment'
+CT_ACTION = 'action'
+CT_INSTANT = 'instant'
+CT_MENTOR = 'mentor'
+CT_RESOURCE = 'resource'
+CT_ATTACK = 'attack'
+CT_DEFENSE = 'defense'
+CT_WEAPON = 'weapon'
+CT_OTHER = 'other' # In case they introduce more types before updating
+# Deck format
+FORMAT_CONSTRUCTED = 'constructed'
+FORMAT_BLITZ = 'blitz'
+
 BOT_NAME = 'fabfetcher'
 
 reddit = praw.Reddit(
@@ -27,12 +47,15 @@ def clean_pitch(pitch):
   }
   return pitch_table.get(pitch.lower(), 'all')
 
-def clean_name(name):
+def get_keywords_from_name(name):
   return name.replace(' ', '+').lower()
 
+# strip out non-alphanumeric characters except spaces, then replace spaces with dashes
+def get_stripped_name(name):
+  return re.sub('[^a-zA-Z0-9 ]', '', name).replace(' ', '-').lower()
+
 def get_print_name(name, identifier):
-  # strip out non-alphanumeric characters except spaces, then replace spaces with dashes
-  check_name = re.sub('[^a-zA-Z0-9 ]', '', name).replace(' ', '-').lower()
+  check_name = get_stripped_name(name)
   if check_name == identifier:
     return name
   else:
@@ -44,7 +67,7 @@ def get_print_card_type(card_talent, card_class, card_type, card_subtype, card_k
   type = ''
 
 
-  if ct in ['hero', 'equipment', 'action', 'instant', 'mentor', 'resource']:
+  if ct in [CT_HERO, CT_EQUIPMENT, CT_ACTION, CT_INSTANT, CT_MENTOR, CT_RESOURCE]:
     if card_talent != None:
       type += '%s ' % (card_talent)
     
@@ -52,12 +75,12 @@ def get_print_card_type(card_talent, card_class, card_type, card_subtype, card_k
 
     if card_subtype != None:
       type += ' - %s' % (card_subtype)
-  elif ct in ['attack', 'defense']:
+  elif ct in [CT_ATTACK, CT_DEFENSE]:
     if card_talent != None:
       type += '%s ' % (card_talent)
     
     type += '%s %s %s' % (card_class, card_type, card_subtype)
-  elif ct in ['weapon']:
+  elif ct in [CT_WEAPON]:
     if card_talent != None:
       type += '%s ' % (card_talent)
     
@@ -86,6 +109,14 @@ class FABFetcherBot:
       self.find_match(comment.body)
       self.make_response(self.response, self.comment)
 
+  def setup_reddit_submissions(self, comment):
+    if(str(comment.author).lower() != BOT_NAME):
+      self.response = ''
+      self.comment = comment
+      self.find_match(comment.selftext)
+      self.make_response(self.response, self.comment)
+
+
   def setup_debug_comment(self, text):
     self.response = ''
     self.find_match(text)
@@ -97,7 +128,7 @@ class FABFetcherBot:
       raw_name, *raw_pitch = card.split('|')
       raw_pitch = raw_pitch[0] if raw_pitch else 'all'
       pitch = clean_pitch(raw_pitch)
-      name = clean_name(raw_name)
+      name = get_keywords_from_name(raw_name)
       # Request card from fabdb API
       req_kw = 'keywords=%s' % (name)
       req_pitch = '&pitch=%s' % (pitch) if pitch != 'all' else ''
@@ -109,7 +140,7 @@ class FABFetcherBot:
         continue
       else:
         req_json = r.json()
-        filtered = filter(lambda n: n.get('name', '').lower() == raw_name.lower(), req_json['data'])
+        filtered = filter(lambda n: get_stripped_name(n.get('name', '')) == get_stripped_name(raw_name), req_json['data'])
         data = list(filtered)
         total = len(data)
         if total > 0:
@@ -121,7 +152,7 @@ class FABFetcherBot:
             print_link = 'https://fabdb.net/cards/%s' % (card['identifier'])
             response += '[%s](%s) - [(DB)](%s)  \n' % (print_name, print_image, print_link)        
         else:
-          print('No cards found')
+          print('No cards found for %s' % (raw_name))
 
     return response
   
@@ -141,10 +172,11 @@ class FABFetcherBot:
         # check for sideboard
         req_side = req_json.get('sideboard', [])
         has_side = len(req_side) > 0
-        card_order = ['hero', 'weapon', 'equipment', 'action', 'instant', 'attack', 'defense', 'mentor', 'resource', 'other']
-        data=sorted(req_cards, key=lambda x: card_order.index(x.get('type', 'other')))
+        card_order = [CT_HERO, CT_WEAPON, CT_EQUIPMENT, CT_ACTION, CT_INSTANT, CT_ATTACK, CT_DEFENSE, CT_MENTOR, CT_RESOURCE, CT_OTHER]
+        data=sorted(req_cards, key=lambda x: card_order.index(x.get('type', CT_OTHER)))
+        deck_format = req_json.get('format')
         # Table Header
-        response += '[%s](https://fabdb.net/decks/%s) - Format: %s\n\n' % (req_json.get('name'), slug, req_json.get('format').title())
+        response += '[%s](https://fabdb.net/decks/%s) - Format: %s\n\n' % (req_json.get('name'), slug, deck_format.title())
         # Setup header depending on if there is a sideboard or not
         if has_side:
           response += 'Side | Main | Card | Type\n'
@@ -162,7 +194,10 @@ class FABFetcherBot:
           print_name = get_print_name(card.get('name'), card.get('identifier'))
           print_image = card['printings'][0]['image']
           # Don't include Hero cards in the mainboard count
-          mainboard = card.get('total') - card.get('totalSideboard') if card.get('type') != 'hero' else 0
+          isNotHero = card.get('type') != CT_HERO
+          isBlitz = deck_format.lower() == FORMAT_BLITZ
+          # Include all cards if it's blitz or not the hero card in constructed
+          mainboard = card.get('total') - card.get('totalSideboard') if (isBlitz or isNotHero) else 0
           sideboard = card.get('totalSideboard')
           main_count += mainboard
           side_count += sideboard
@@ -213,7 +248,7 @@ class FABFetcherBot:
 # Setup here
 bot = FABFetcherBot()
 print('FAB Fetcher Bot is now running')
-if DEBUG:
+if bot_mode == MODE_DEBUG:
   test_comment = '{{gBVQWAdJ}} has a sideboard'
   # test_comment = '{{EPGBqxWl}} has no sideboard'
   # test_comment = '{{EGdlZLQA}} blitz'
@@ -221,5 +256,10 @@ if DEBUG:
 else:
   keep_alive()
   subreddit = reddit.subreddit('FabFetcherBotTest+FleshAndBloodTCG')
-  for comment in subreddit.stream.comments(skip_existing=True):
-    bot.setup_reddit_comment(comment)
+
+  if bot_mode == MODE_SUBMISSION:
+    for submissions in subreddit.stream.submissions(skip_existing=True):
+      bot.setup_reddit_submissions(submissions)
+  else:
+    for comment in subreddit.stream.comments(skip_existing=True):
+      bot.setup_reddit_comment(comment)
