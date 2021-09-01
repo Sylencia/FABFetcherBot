@@ -6,11 +6,10 @@ from replit import db
 from keep_alive import keep_alive
 
 # Mode
-bot_mode = 'comment'
 MODE_COMMENT = 'comment'
 MODE_SUBMISSION = 'submission'
 MODE_DEBUG = 'debug'
-DEBUG = False
+bot_mode = MODE_COMMENT
 # Card Types
 CT_HERO = 'hero'
 CT_EQUIPMENT = 'equipment'
